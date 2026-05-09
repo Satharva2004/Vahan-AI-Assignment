@@ -106,7 +106,7 @@ type ProgressItem = {
   error?: string;
 };
 
-const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+const apiBase = buildApiBase();
 const baselineModelId = "deepgram-nova-3";
 const conditionOptions = ["Quiet", "Traffic", "Phone call", "Rushed", "Whispered", "Noisy room", "Hinglish", "Hindi", "Kannada", "Public sample"];
 const modelIcons: Record<string, string> = {
@@ -249,6 +249,14 @@ function readAudioDuration(src?: string) {
     audio.onerror = () => resolve(null);
     audio.src = src;
   });
+}
+
+function buildApiBase() {
+  const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+  const prefix = process.env.NEXT_PUBLIC_API_ROUTE_PREFIX ?? "";
+  const normalizedBase = base.replace(/\/+$/, "");
+  const normalizedPrefix = prefix ? `/${prefix.replace(/^\/+|\/+$/g, "")}` : "";
+  return `${normalizedBase}${normalizedPrefix}`;
 }
 
 export default function Home() {

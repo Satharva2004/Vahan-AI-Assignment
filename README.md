@@ -80,7 +80,7 @@ If port `8000` is blocked on Windows, use another port:
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8010
 ```
 
-Then set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8010` for the frontend.
+Then update `frontend/.env` to `NEXT_PUBLIC_API_BASE_URL=http://localhost:8010`.
 
 ## Frontend
 
@@ -91,6 +91,15 @@ npm run dev
 ```
 
 Frontend runs at http://localhost:3000.
+
+Frontend API target is controlled from one file: `frontend/.env`.
+
+```env
+NEXT_PUBLIC_API_BASE_URL=https://vahan-ai-assignment-74ig.vercel.app
+NEXT_PUBLIC_API_ROUTE_PREFIX=
+```
+
+For local backend testing, change `NEXT_PUBLIC_API_BASE_URL` to `http://localhost:8000`. If a backend is mounted under a route prefix such as `/_/backend`, set `NEXT_PUBLIC_API_ROUTE_PREFIX=/_/backend`.
 
 ## CLI Benchmark
 
