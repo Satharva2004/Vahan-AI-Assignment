@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import savedBatchResults from "../../public/benchmark-results.json";
 
 type ModelSpec = {
   id: string;
@@ -22,6 +23,58 @@ type Aggregate = {
   latency_ms: number | null;
   rtf: number | null;
   failures: number;
+};
+
+type BatchAggregate = {
+  model_id: string;
+  provider: string;
+  model: string;
+  recordings: number;
+  wer: number | null;
+  accuracy: number | null;
+  cer: number | null;
+  exact_match_rate?: number | null;
+  entity_recall: number | null;
+  entity_f1: number | null;
+  hallucination_rate: number | null;
+  latency_ms: number | null;
+  rtf: number | null;
+  failures: number;
+};
+
+type BatchRow = {
+  file?: string;
+  file_name?: string;
+  language?: string;
+  condition?: string;
+  ground_truth?: string;
+  entities?: string;
+  duration_seconds?: number | null;
+  model_id: string;
+  provider: string;
+  model: string;
+  ok: boolean;
+  latency_ms?: number | null;
+  rtf?: number | null;
+  realtime_status?: string | null;
+  model_output?: string;
+  error?: string;
+  metrics?: {
+    wer?: number | null;
+    cer?: number | null;
+    entity_recall?: number | null;
+    entity_f1?: number | null;
+    hallucination_rate?: number | null;
+    missed_entities?: string[];
+    inserted_words?: number;
+  } | null;
+};
+
+type BatchResults = {
+  source: string;
+  recording_count: number;
+  models: BatchAggregate[];
+  rows?: BatchRow[];
 };
 
 type RunResult = {
@@ -115,6 +168,7 @@ const modelIcons: Record<string, string> = {
   assemblyai: "https://www.google.com/s2/favicons?domain=assemblyai.com&sz=64",
   openai: "https://www.google.com/s2/favicons?domain=openai.com&sz=64",
   google: "https://www.google.com/s2/favicons?domain=cloud.google.com&sz=64",
+  github: "https://www.google.com/s2/favicons?domain=github.com&sz=64",
 };
 const modelColors = ["#e91e63", "#34a853", "#ff8a00", "#2f80ed", "#8b5cf6", "#009688", "#fbbf24"];
 
@@ -270,6 +324,7 @@ export default function Home() {
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [batchResults, setBatchResults] = useState<BatchResults | null>(savedBatchResults as BatchResults);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const timerRef = useRef<number | null>(null);
@@ -284,6 +339,15 @@ export default function Home() {
       })
       .catch(() => setModels(defaultModels));
   }, [selected]);
+
+  useEffect(() => {
+    fetch(`/benchmark-results.json?ts=${Date.now()}`, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload) => {
+        if (payload?.models) setBatchResults(payload);
+      })
+      .catch(() => undefined);
+  }, []);
 
   const selectedModels = useMemo(
     () => selected.map((id) => models.find((model) => model.id === id)).filter(Boolean) as ModelSpec[],
@@ -495,28 +559,57 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <header className="bg-background">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-          <p className="font-display text-3xl tracking-tight">AI ASR Lab</p>
-          <nav className="hidden items-center gap-10 text-base font-bold md:flex">
-            <span>Upload</span>
-            <span>Compare</span>
-            <span>Report</span>
-            <button type="button" className="button-secondary h-14 px-5">Assignment</button>
+      <header className="app-header">
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-5 py-4 md:flex-row md:items-center md:justify-between">
+          <a className="brand-lockup" href="#results">
+            <span className="brand-mark">A</span>
+            <span>
+              <span className="block font-display text-2xl tracking-tight">AI ASR Lab</span>
+              <span className="block text-xs font-bold theme-muted">Voice benchmark assignment</span>
+            </span>
+          </a>
+          <nav className="header-actions" aria-label="Primary navigation">
+            <span className="header-tabs">
+              <a className="header-tab header-tab-active" href="#results">
+                Results
+              </a>
+              <a className="header-tab" href="#upload">
+                Upload
+              </a>
+            </span>
+            <a className="github-link" href="https://github.com/Satharva2004/Vahan-AI-Assignment" target="_blank" rel="noreferrer">
+              <ModelIcon provider="github" label="GitHub" />
+              GitHub
+            </a>
           </nav>
         </div>
       </header>
 
-      <section className="mx-auto max-w-4xl px-6 pb-8 pt-6 text-center">
-        <h1 className="font-display text-3xl leading-tight md:text-4xl">Automatic Speech Recognition Benchmarking</h1>
-        <p className="mx-auto mt-3 max-w-2xl text-base leading-6 theme-muted">
-          Upload audio, add the ground truth, and compare ASR models.
-        </p>
-      </section>
+      <div id="results" className="scroll-mt-28">
+        {batchResults ? (
+          <BatchBenchmarkReport data={batchResults} />
+        ) : (
+          <section className="mx-auto max-w-6xl px-5 pb-14 pt-8">
+            <div className="theme-panel">
+              <p className="text-sm font-bold theme-muted">Saved benchmark</p>
+              <h1 className="mt-1 font-display text-3xl">No saved results found</h1>
+              <p className="mt-3 theme-muted">Run the benchmark script once to generate the public results file.</p>
+            </div>
+          </section>
+        )}
+      </div>
 
-      <form onSubmit={runBenchmark} className="mx-auto max-w-7xl px-6 pb-12">
-        <section className="assignment-shell relative overflow-hidden">
-          {loading ? <RunAnimation /> : null}
+      <div id="upload" className="scroll-mt-28">
+          <section className="mx-auto max-w-4xl px-6 pb-8 pt-6 text-center">
+            <h1 className="font-display text-3xl leading-tight md:text-4xl">Automatic Speech Recognition Benchmarking</h1>
+            <p className="mx-auto mt-3 max-w-2xl text-base leading-6 theme-muted">
+              Upload audio, add the ground truth, and compare ASR models.
+            </p>
+          </section>
+
+          <form onSubmit={runBenchmark} className="mx-auto max-w-7xl px-6 pb-12">
+            <section className="assignment-shell relative overflow-hidden">
+              {loading ? <RunAnimation /> : null}
 
           <div className="mb-5 flex flex-col justify-between gap-5 md:flex-row md:items-start">
             <div className="flex items-center gap-5">
@@ -653,10 +746,11 @@ export default function Home() {
               {error ? <p className="text-sm font-bold text-[#b91c1c]">{error}</p> : null}
             </div>
           </div>
-        </section>
-      </form>
+            </section>
+          </form>
 
-      {result ? <Report result={result} readyForAnalysis={!loading && progress.every((item) => item.status === "done" || item.status === "failed")} /> : null}
+          {result ? <Report result={result} readyForAnalysis={!loading && progress.every((item) => item.status === "done" || item.status === "failed")} /> : null}
+      </div>
     </main>
   );
 }
@@ -872,6 +966,251 @@ function ModelIcon({ provider, label }: { provider: string; label: string }) {
   ) : (
     <span className="model-icon-fallback">{label.slice(0, 1)}</span>
   );
+}
+
+function BatchBenchmarkReport({ data }: { data: BatchResults }) {
+  const bestByWer = data.models[0];
+  const fastest = [...data.models].filter((item) => item.latency_ms != null).sort((a, b) => (a.latency_ms ?? 999999) - (b.latency_ms ?? 999999))[0];
+  const entityWinner = [...data.models].sort((a, b) => (b.entity_recall ?? -1) - (a.entity_recall ?? -1))[0];
+  const reliableWinner = data.models.find((item) => item.failures === 0) ?? bestByWer;
+  const evidence = buildEvidenceGroups(data.rows ?? []).slice(0, 6);
+
+  return (
+    <section className="mx-auto max-w-7xl space-y-6 px-5 pb-14 pt-8">
+      <div className="results-hero">
+        <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+          <div>
+            <p className="text-sm font-bold theme-muted">Saved benchmark</p>
+            <h1 className="font-display text-4xl leading-tight">Voice Notes batch results</h1>
+          </div>
+          <p className="max-w-xl text-sm leading-6 theme-muted">
+            {data.recording_count} recordings from {data.source}. Ranking uses WER, but the decision view also checks entity recall, hallucination, latency, and failures.
+          </p>
+        </div>
+      </div>
+
+      <div className="insight-grid">
+        <InsightTile label="Best WER" value={bestByWer?.model ?? "n/a"} detail={`${formatPct(bestByWer?.wer)} WER`} provider={bestByWer?.provider} />
+        <InsightTile label="Best entity recall" value={entityWinner?.model ?? "n/a"} detail={formatPct(entityWinner?.entity_recall)} provider={entityWinner?.provider} />
+        <InsightTile label="Fastest response" value={fastest?.model ?? "n/a"} detail={fastest?.latency_ms ? `${fastest.latency_ms} ms avg` : "n/a"} provider={fastest?.provider} />
+        <InsightTile label="No-failure pick" value={reliableWinner?.model ?? "n/a"} detail={`${reliableWinner?.recordings ?? 0}/${data.recording_count} samples`} provider={reliableWinner?.provider} />
+      </div>
+
+      <div className="theme-panel">
+        <h3 className="font-display text-xl">Batch benchmark table</h3>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+            <thead>
+              <tr className="border-y-2 border-foreground theme-muted">
+                <th className="py-2 pr-4">Rank</th>
+                <th className="py-2 pr-4">Model</th>
+                <th className="py-2 pr-4">Samples</th>
+                <th className="py-2 pr-4">WER</th>
+                <th className="py-2 pr-4">Accuracy</th>
+                <th className="py-2 pr-4">Exact match</th>
+                <th className="py-2 pr-4">CER</th>
+                <th className="py-2 pr-4">Entity recall</th>
+                <th className="py-2 pr-4">Hallucination</th>
+                <th className="py-2 pr-4">RTF</th>
+                <th className="py-2 pr-4">Latency</th>
+                <th className="py-2 pr-4">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.models.map((item, index) => (
+                <tr key={item.model_id} className="border-b border-foreground/10 align-top">
+                  <td className="py-3 pr-4 font-bold">{index + 1}</td>
+                  <td className="py-3 pr-4 font-bold">
+                    <span className="inline-flex items-center gap-2">
+                      <ModelIcon provider={item.provider} label={item.model} />
+                      {item.model}
+                    </span>
+                  </td>
+                  <td className="py-3 pr-4">{item.recordings}/{data.recording_count}</td>
+                  <td className="py-3 pr-4">{formatPct(item.wer)}</td>
+                  <td className="py-3 pr-4">{formatPct(item.accuracy)}</td>
+                  <td className="py-3 pr-4">{formatPct(item.exact_match_rate)}</td>
+                  <td className="py-3 pr-4">{formatPct(item.cer)}</td>
+                  <td className="py-3 pr-4">{formatPct(item.entity_recall)}</td>
+                  <td className="py-3 pr-4">{formatPct(item.hallucination_rate)}</td>
+                  <td className="py-3 pr-4">{formatRtf(item.rtf)}</td>
+                  <td className="py-3 pr-4">{item.latency_ms ? `${item.latency_ms} ms` : "n/a"}</td>
+                  <td className="py-3 pr-4">{item.failures ? `${item.failures} failed` : "OK"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-4 text-sm theme-muted">Note: Sarvam synchronous API rejected two audio files above 30 seconds; those are counted as failures for Sarvam models.</p>
+      </div>
+
+      <div className="chart-grid">
+        <BatchMetricChart title="Accuracy" subtitle="Higher is better" items={data.models} metric="accuracy" />
+        <BatchMetricChart title="WER" subtitle="Lower is better" items={data.models} metric="wer" invert />
+        <BatchMetricChart title="Entity recall" subtitle="Names and locality phrases" items={data.models} metric="entity_recall" />
+        <BatchMetricChart title="Hallucination" subtitle="Inserted unsupported words" items={data.models} metric="hallucination_rate" invert />
+        <BatchMetricChart title="Latency" subtitle="Average response time" items={data.models} metric="latency_ms" valueKind="ms" invert />
+        <BatchMetricChart title="Real-time factor" subtitle="Below 1x is faster than audio" items={data.models} metric="rtf" valueKind="rtf" invert />
+      </div>
+
+      {evidence.length ? (
+        <div className="theme-panel">
+          <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+            <div>
+              <p className="text-sm font-bold theme-muted">Transcript evidence</p>
+              <h3 className="font-display text-xl">Ground truth vs model output</h3>
+            </div>
+            <p className="max-w-lg text-sm theme-muted">Showing representative samples with every model output so the numbers stay explainable.</p>
+          </div>
+          <div className="evidence-grid mt-5">
+            {evidence.map((group) => (
+              <article key={group.key} className="evidence-card">
+                <div className="flex flex-col justify-between gap-2 md:flex-row md:items-start">
+                  <div>
+                    <p className="font-display text-lg">{group.fileName}</p>
+                    <p className="text-xs font-bold theme-muted">{group.language || "Unknown language"} / {group.condition || "Unlabeled"} / {group.duration ? `${group.duration}s` : "duration n/a"}</p>
+                  </div>
+                  {group.entities ? <span className="entity-chip">{group.entities}</span> : null}
+                </div>
+
+                <div className="ground-truth-box">
+                  <span>Ground truth</span>
+                  <p>{group.groundTruth || "No ground truth provided"}</p>
+                </div>
+
+                <div className="model-output-list">
+                  {group.rows.map((row) => (
+                    <div key={`${group.key}-${row.model_id}`} className="model-output-row">
+                      <div className="model-output-head">
+                        <span className="inline-flex min-w-0 items-center gap-2 font-bold">
+                          <ModelIcon provider={row.provider} label={row.model} />
+                          <span className="truncate">{row.model}</span>
+                        </span>
+                        <span className={row.ok ? "output-status" : "output-status output-status-error"}>
+                          {row.ok ? `${formatPct(row.metrics?.wer)} WER` : "Failed"}
+                        </span>
+                      </div>
+                      <p className="model-output-text">{row.ok ? row.model_output || "No transcript returned" : row.error}</p>
+                      <div className="output-metrics">
+                        <span>Entity {formatPct(row.metrics?.entity_recall)}</span>
+                        <span>Hallucination {formatPct(row.metrics?.hallucination_rate)}</span>
+                        <span>RTF {formatRtf(row.rtf)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function InsightTile({ label, value, detail, provider }: { label: string; value: string; detail: string; provider?: string }) {
+  return (
+    <div className="insight-tile">
+      <p className="text-xs font-bold theme-muted">{label}</p>
+      <div className="mt-3 flex items-start gap-3">
+        <ModelIcon provider={provider ?? ""} label={value} />
+        <div className="min-w-0">
+          <p className="truncate font-bold">{value}</p>
+          <p className="mt-1 text-sm theme-muted">{detail}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type BatchMetricKey = "accuracy" | "wer" | "entity_recall" | "hallucination_rate" | "latency_ms" | "rtf";
+
+function BatchMetricChart({
+  title,
+  subtitle,
+  items,
+  metric,
+  valueKind = "percent",
+  invert = false,
+}: {
+  title: string;
+  subtitle: string;
+  items: BatchAggregate[];
+  metric: BatchMetricKey;
+  valueKind?: "percent" | "ms" | "rtf";
+  invert?: boolean;
+}) {
+  const values = items.map((item) => Number(item[metric] ?? 0));
+  const max = Math.max(...values, metric === "rtf" ? 1 : 0.01);
+  const sorted = [...items].sort((a, b) => {
+    const av = Number(a[metric] ?? (invert ? 999999 : -1));
+    const bv = Number(b[metric] ?? (invert ? 999999 : -1));
+    return invert ? av - bv : bv - av;
+  });
+
+  return (
+    <div className="chart-panel">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-display text-xl">{title}</h3>
+          <p className="text-sm theme-muted">{subtitle}</p>
+        </div>
+      </div>
+      <div className="mt-5 grid gap-3">
+        {sorted.map((item, index) => {
+          const rawValue = Number(item[metric] ?? 0);
+          const width = valueKind === "percent" ? Math.max(4, rawValue * 100) : Math.max(4, (rawValue / max) * 100);
+          return (
+            <div key={`${metric}-${item.model_id}`} className="chart-row">
+              <div className="chart-label">
+                <span className="inline-flex min-w-0 items-center gap-2">
+                  <ModelIcon provider={item.provider} label={item.model} />
+                  <span className="truncate">{item.model}</span>
+                </span>
+                <strong>{formatChartValue(rawValue, valueKind)}</strong>
+              </div>
+              <div className="chart-track">
+                <div className="chart-fill" style={{ width: `${width}%`, background: modelColors[index % modelColors.length] }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function formatChartValue(value: number, valueKind: "percent" | "ms" | "rtf") {
+  if (valueKind === "ms") return `${Math.round(value)} ms`;
+  if (valueKind === "rtf") return `${Math.round(value * 100) / 100}x`;
+  return formatPct(value);
+}
+
+function buildEvidenceGroups(rows: BatchRow[]) {
+  const byFile = new Map<string, BatchRow[]>();
+  rows.forEach((row) => {
+    const key = row.file_name || row.file || "Unknown file";
+    const current = byFile.get(key) ?? [];
+    current.push(row);
+    byFile.set(key, current);
+  });
+
+  return Array.from(byFile.entries()).map(([key, fileRows]) => {
+    const first = fileRows[0];
+    return {
+      key,
+      fileName: first.file_name || first.file || key,
+      language: first.language,
+      condition: first.condition,
+      duration: first.duration_seconds,
+      entities: first.entities,
+      groundTruth: first.ground_truth,
+      rows: [...fileRows].sort((a, b) => {
+        if (a.ok !== b.ok) return a.ok ? -1 : 1;
+        return (a.metrics?.wer ?? 999) - (b.metrics?.wer ?? 999);
+      }),
+    };
+  });
 }
 
 function Report({ result, readyForAnalysis }: { result: BenchmarkResponse; readyForAnalysis: boolean }) {

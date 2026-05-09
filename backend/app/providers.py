@@ -289,7 +289,7 @@ async def _google_stt(
     encoding = _google_encoding(content_type)
     if encoding:
         config["encoding"] = encoding
-    if content_type in {"audio/webm", "video/webm"}:
+    if content_type in {"audio/webm", "video/webm", "audio/ogg", "audio/opus"}:
         config["sampleRateHertz"] = 48000
 
     payload = {

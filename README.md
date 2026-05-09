@@ -111,11 +111,36 @@ cd backend
 python scripts\run_benchmark.py --manifest ..\data\manifest.csv --output ..\data\results --models deepgram-nova-3 sarvam-saaras-v3-transcribe assemblyai-best
 ```
 
+Run the full Voice Notes Excel benchmark:
+
+```powershell
+cd backend
+.\.venv\Scripts\Activate.ps1
+python scripts\run_benchmark.py --manifest "..\data\Voice Notes.xlsx" --output ..\data\results --frontend-public ..\frontend\public
+```
+
 Outputs:
 
 - `data/results/results.csv`
 - `data/results/results.json`
 - `data/results/summary.json`
+- `frontend/public/benchmark-results.json`
+
+## Voice Notes Benchmark
+
+The current saved benchmark uses `data/Voice Notes.xlsx`: 32 Cloudinary OGG recordings with ground truth, language, condition, and entity labels. It benchmarks 11 ASR configurations across Deepgram, Sarvam, OpenAI, AssemblyAI, and Google STT.
+
+Top aggregate results by WER:
+
+| Rank | Model | WER | Accuracy | Exact Match | Entity Recall | Hallucination | RTF | Failures |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|
+| 1 | Sarvam Saarika v2.5 | 16.44% | 83.56% | 46.67% | 76.67% | 2.83% | 0.172x | 2 |
+| 2 | Sarvam Saaras v3 Codemix | 17.86% | 82.14% | 36.67% | 65.00% | 2.30% | 0.175x | 2 |
+| 3 | OpenAI GPT-4o Mini Transcribe | 18.35% | 81.65% | 34.38% | 60.44% | 2.61% | 0.248x | 0 |
+| 4 | Sarvam Saaras v3 | 18.69% | 81.31% | 33.33% | 65.00% | 2.67% | 0.183x | 2 |
+| 5 | Deepgram Nova-3 | 24.16% | 75.84% | 15.62% | 35.66% | 4.24% | 0.334x | 0 |
+
+Interpretation: Sarvam leads on WER and entity recall on the short recordings, but its synchronous API rejects two files longer than 30 seconds. OpenAI GPT-4o Mini is the strongest zero-failure challenger. Deepgram Nova-3 remains reliable but misses more locality entities in this dataset.
 
 ## Report Notes
 
