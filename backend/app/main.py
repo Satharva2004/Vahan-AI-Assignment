@@ -5,7 +5,7 @@ from dataclasses import asdict
 from io import BytesIO
 from typing import Annotated, Any
 
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 
@@ -45,6 +45,12 @@ def list_models() -> dict[str, list[dict]]:
     return {"models": [asdict(model) for model in MODEL_SPECS]}
 
 
+@app.post("/playground/unlock")
+async def unlock_playground(payload: dict[str, str]) -> dict[str, bool]:
+    _assert_playground_password(payload.get("password", ""))
+    return {"ok": True}
+
+
 @app.post("/benchmark")
 async def benchmark(
     files: Annotated[list[UploadFile], File()],
@@ -54,6 +60,7 @@ async def benchmark(
     entities: Annotated[str, Form()] = "[]",
     conditions: Annotated[str, Form()] = "[]",
     durations: Annotated[str, Form()] = "[]",
+    x_playground_password: Annotated[str, Header(alias="X-Playground-Password")] = "",
 ) -> dict:
     parsed_references: list[str] = json.loads(references)
     parsed_entities: list[str] = json.loads(entities)
@@ -62,6 +69,7 @@ async def benchmark(
     selected_models: list[str] = json.loads(model_ids)
     keys: dict[str, str] = json.loads(api_keys) if api_keys else {}
     selected_models = list(dict.fromkeys(selected_models))
+    _assert_model_access(selected_models, x_playground_password)
 
     if len(parsed_references) != len(files):
         return {"ok": False, "error": "Each audio file needs one reference transcript."}
@@ -91,8 +99,12 @@ async def benchmark(
 
 
 @app.post("/benchmark-urls")
-async def benchmark_urls(payload: dict[str, Any]) -> dict:
+async def benchmark_urls(
+    payload: dict[str, Any],
+    x_playground_password: Annotated[str, Header(alias="X-Playground-Password")] = "",
+) -> dict:
     selected_models = list(dict.fromkeys(payload.get("model_ids") or []))
+    _assert_model_access(selected_models, x_playground_password)
     keys: dict[str, str] = payload.get("api_keys") or {}
     samples = payload.get("samples") or []
     if not selected_models:
@@ -125,6 +137,18 @@ async def benchmark_urls(payload: dict[str, Any]) -> dict:
             )
 
     return await _run_benchmark(items, selected_models, keys)
+
+
+def _assert_playground_password(value: str) -> None:
+    expected = os.getenv("PLAYGROUND_PASSWORD", "")
+    if not expected or value != expected:
+        raise HTTPException(status_code=401, detail="Playground locked.")
+
+
+def _assert_model_access(selected_models: list[str], password: str) -> None:
+    paid_models = [model_id for model_id in selected_models if model_id != "deepgram-nova-3"]
+    if paid_models:
+        _assert_playground_password(password)
 
 
 async def _run_benchmark(items: list[dict], selected_models: list[str], keys: dict[str, str]) -> dict:

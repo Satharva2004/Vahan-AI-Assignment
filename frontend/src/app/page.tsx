@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import savedBatchResults from "../../public/benchmark-results.json";
 
@@ -169,6 +170,7 @@ const modelIcons: Record<string, string> = {
   openai: "https://www.google.com/s2/favicons?domain=openai.com&sz=64",
   google: "https://www.google.com/s2/favicons?domain=cloud.google.com&sz=64",
   github: "https://www.google.com/s2/favicons?domain=github.com&sz=64",
+  linkedin: "https://www.google.com/s2/favicons?domain=linkedin.com&sz=64",
 };
 const modelColors = ["#e91e63", "#34a853", "#ff8a00", "#2f80ed", "#8b5cf6", "#009688", "#fbbf24"];
 
@@ -313,11 +315,19 @@ function buildApiBase() {
   return `${normalizedBase}${normalizedPrefix}`;
 }
 
+function isPaidModel(modelId: string) {
+  return modelId !== baselineModelId;
+}
+
 export default function Home() {
+  return <DashboardApp view="results" />;
+}
+
+export function DashboardApp({ view }: { view: "results" | "upload" }) {
   const [rows, setRows] = useState<RecordingRow[]>([newRow(0)]);
   const [models, setModels] = useState<ModelSpec[]>(defaultModels);
   const [selected, setSelected] = useState<string[]>([baselineModelId]);
-  const [modelToAdd, setModelToAdd] = useState("sarvam-saaras-v3-codemix");
+  const [modelToAdd, setModelToAdd] = useState("");
   const [result, setResult] = useState<BenchmarkResponse | null>(null);
   const [progress, setProgress] = useState<ProgressItem[]>([]);
   const [recordingRowId, setRecordingRowId] = useState<string | null>(null);
@@ -325,6 +335,11 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [batchResults, setBatchResults] = useState<BatchResults | null>(savedBatchResults as BatchResults);
+  const [playgroundPassword, setPlaygroundPassword] = useState("");
+  const [unlockedPassword, setUnlockedPassword] = useState("");
+  const [unlockError, setUnlockError] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
+  const [pendingModelId, setPendingModelId] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const timerRef = useRef<number | null>(null);
@@ -335,10 +350,10 @@ export default function Home() {
       .then((payload) => {
         const fetched = payload.models ?? defaultModels;
         setModels(fetched);
-        setModelToAdd(fetched.find((model: ModelSpec) => model.id !== baselineModelId && !selected.includes(model.id))?.id ?? "");
+        setModelToAdd(fetched.find((model: ModelSpec) => model.id !== baselineModelId)?.id ?? "");
       })
       .catch(() => setModels(defaultModels));
-  }, [selected]);
+  }, []);
 
   useEffect(() => {
     fetch(`/benchmark-results.json?ts=${Date.now()}`, { cache: "no-store" })
@@ -453,9 +468,13 @@ export default function Home() {
 
   function selectModel(modelId: string) {
     setModelToAdd(modelId);
-    if (modelId && modelId !== baselineModelId && !selected.includes(modelId)) {
-      setSelected((current) => [...current, modelId]);
+    if (!modelId || selected.includes(modelId)) return;
+    if (isPaidModel(modelId) && !unlockedPassword) {
+      setPendingModelId(modelId);
+      setUnlockError("");
+      return;
     }
+    if (modelId !== baselineModelId) setSelected((current) => [...current, modelId]);
   }
 
   async function ensureDurations(targetRows: RecordingRow[]) {
@@ -484,9 +503,6 @@ export default function Home() {
       if (!usableUploads.length && !usableSamples.length) throw new Error("Upload audio or choose a public sample.");
       const durationById = await ensureDurations([...usableUploads, ...usableSamples]);
       const comparisonModels = selected.filter((id) => id !== baselineModelId);
-      if (comparisonModels.length < 1) {
-        throw new Error("Select at least one model to compare against Deepgram Nova-3.");
-      }
       const runOrder = [baselineModelId, ...comparisonModels];
       setProgress(
         runOrder.map((modelId) => ({
@@ -512,7 +528,11 @@ export default function Home() {
             form.append("durations", JSON.stringify(usableUploads.map((row) => durationById.get(row.id) ?? null)));
             form.append("model_ids", JSON.stringify([modelId]));
 
-            const response = await fetch(`${apiBase}/benchmark`, { method: "POST", body: form });
+            const response = await fetch(`${apiBase}/benchmark`, {
+              method: "POST",
+              headers: unlockedPassword ? { "X-Playground-Password": unlockedPassword } : undefined,
+              body: form,
+            });
             const payload = (await response.json()) as BenchmarkResponse;
             if (!response.ok || !payload.ok) throw new Error(payload.error ?? `${label} failed.`);
             merged = mergeBenchmarkResults(merged, payload);
@@ -522,7 +542,10 @@ export default function Home() {
           if (usableSamples.length) {
             const response = await fetch(`${apiBase}/benchmark-urls`, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: {
+                "Content-Type": "application/json",
+                ...(unlockedPassword ? { "X-Playground-Password": unlockedPassword } : {}),
+              },
               body: JSON.stringify({
                 model_ids: [modelId],
                 samples: usableSamples.map((row) => ({
@@ -557,35 +580,61 @@ export default function Home() {
     }
   }
 
+  async function unlockPlayground(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setUnlocking(true);
+    setUnlockError("");
+    try {
+      const response = await fetch(`${apiBase}/playground/unlock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: playgroundPassword }),
+      });
+      if (!response.ok) throw new Error("Incorrect password.");
+      setUnlockedPassword(playgroundPassword);
+      if (pendingModelId && !selected.includes(pendingModelId)) {
+        setSelected((current) => [...current, pendingModelId]);
+      }
+      setPendingModelId(null);
+      setPlaygroundPassword("");
+    } catch (caught) {
+      setUnlockError(caught instanceof Error ? caught.message : "Could not unlock playground.");
+    } finally {
+      setUnlocking(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <header className="app-header">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-5 py-4 md:flex-row md:items-center md:justify-between">
-          <a className="brand-lockup" href="#results">
+          <Link className="brand-lockup" href="/">
             <span className="brand-mark">A</span>
             <span>
               <span className="block font-display text-2xl tracking-tight">AI ASR Lab</span>
               <span className="block text-xs font-bold theme-muted">Voice benchmark assignment</span>
             </span>
-          </a>
+          </Link>
           <nav className="header-actions" aria-label="Primary navigation">
             <span className="header-tabs">
-              <a className="header-tab header-tab-active" href="#results">
+              <Link className={view === "results" ? "header-tab header-tab-active" : "header-tab"} href="/">
                 Results
-              </a>
-              <a className="header-tab" href="#upload">
+              </Link>
+              <Link className={view === "upload" ? "header-tab header-tab-active" : "header-tab"} href="/upload">
                 Upload
-              </a>
+              </Link>
             </span>
-            <a className="github-link" href="https://github.com/Satharva2004/Vahan-AI-Assignment" target="_blank" rel="noreferrer">
+            <a className="social-link" href="https://github.com/Satharva2004/Vahan-AI-Assignment" target="_blank" rel="noreferrer" aria-label="GitHub repository">
               <ModelIcon provider="github" label="GitHub" />
-              GitHub
+            </a>
+            <a className="social-link" href="https://www.linkedin.com/in/atharvasawant" target="_blank" rel="noreferrer" aria-label="LinkedIn profile">
+              <ModelIcon provider="linkedin" label="LinkedIn" />
             </a>
           </nav>
         </div>
       </header>
 
-      <div id="results" className="scroll-mt-28">
+      {view === "results" ? <div id="results" className="scroll-mt-28">
         {batchResults ? (
           <BatchBenchmarkReport data={batchResults} />
         ) : (
@@ -597,15 +646,31 @@ export default function Home() {
             </div>
           </section>
         )}
-      </div>
+      </div> : null}
 
-      <div id="upload" className="scroll-mt-28">
+      {view === "upload" ? <div id="upload" className="scroll-mt-28">
           <section className="mx-auto max-w-4xl px-6 pb-8 pt-6 text-center">
             <h1 className="font-display text-3xl leading-tight md:text-4xl">Automatic Speech Recognition Benchmarking</h1>
             <p className="mx-auto mt-3 max-w-2xl text-base leading-6 theme-muted">
-              Upload audio, add the ground truth, and compare ASR models.
+              Upload audio, add the ground truth, run Deepgram free, and unlock paid models only when needed.
             </p>
           </section>
+
+          {pendingModelId ? (
+            <UnlockModal
+              modelName={models.find((model) => model.id === pendingModelId)?.label ?? "paid model"}
+              password={playgroundPassword}
+              error={unlockError}
+              unlocking={unlocking}
+              onPasswordChange={setPlaygroundPassword}
+              onSubmit={unlockPlayground}
+              onClose={() => {
+                setPendingModelId(null);
+                setPlaygroundPassword("");
+                setUnlockError("");
+              }}
+            />
+          ) : null}
 
           <form onSubmit={runBenchmark} className="mx-auto max-w-7xl px-6 pb-12">
             <section className="assignment-shell relative overflow-hidden">
@@ -625,8 +690,10 @@ export default function Home() {
             <div className="grid gap-3 md:min-w-[420px]">
               <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
                 <select value={modelToAdd} onChange={(event) => selectModel(event.target.value)} className="field">
-                  {models.filter((model) => model.id !== baselineModelId).map((model) => (
-                    <option key={model.id} value={model.id}>{model.label}</option>
+                  {models.filter((model) => model.id !== baselineModelId && !selected.includes(model.id)).map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.label}{isPaidModel(model.id) && !unlockedPassword ? " (locked)" : ""}
+                    </option>
                   ))}
                 </select>
                 <button className="button-primary px-6" disabled={loading}>
@@ -646,6 +713,7 @@ export default function Home() {
                     className={`model-pill ${model.id === baselineModelId ? "model-pill-fixed" : ""}`}
                   >
                     <ModelIcon provider={model.provider} label={model.label} />
+                    {isPaidModel(model.id) && !unlockedPassword ? <span className="model-lock-label">Locked</span> : null}
                     {model.id === baselineModelId ? `${model.label} baseline` : model.label}
                   </button>
                 ))}
@@ -750,7 +818,7 @@ export default function Home() {
           </form>
 
           {result ? <Report result={result} readyForAnalysis={!loading && progress.every((item) => item.status === "done" || item.status === "failed")} /> : null}
-      </div>
+      </div> : null}
     </main>
   );
 }
@@ -892,6 +960,56 @@ function MetadataPopover({ metadata }: { metadata: Record<string, string> }) {
   );
 }
 
+function UnlockModal({
+  modelName,
+  password,
+  error,
+  unlocking,
+  onPasswordChange,
+  onSubmit,
+  onClose,
+}: {
+  modelName: string;
+  password: string;
+  error: string;
+  unlocking: boolean;
+  onPasswordChange: (value: string) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="unlock-backdrop" role="dialog" aria-modal="true" aria-labelledby="unlock-title">
+      <form onSubmit={onSubmit} className="unlock-modal">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-bold theme-muted">Paid model locked</p>
+            <h2 id="unlock-title" className="font-display text-3xl">Unlock {modelName}</h2>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close unlock dialog">X</button>
+        </div>
+        <p className="mt-3 text-sm leading-6 theme-muted">
+          Deepgram Nova-3 is open for everyone. Hosted OpenAI, Sarvam, AssemblyAI, and Google STT runs need the judge password because those calls use private server-side keys.
+        </p>
+        <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto]">
+          <input
+            type="password"
+            value={password}
+            onChange={(event) => onPasswordChange(event.target.value)}
+            placeholder="Enter judge password"
+            className="field"
+            autoComplete="off"
+            autoFocus
+          />
+          <button type="submit" className="button-primary px-6" disabled={unlocking || !password}>
+            {unlocking ? "Checking" : "Unlock"}
+          </button>
+        </div>
+        {error ? <p className="mt-3 text-sm font-bold text-[#b91c1c]">{error}</p> : null}
+      </form>
+    </div>
+  );
+}
+
 function ProgressPanel({ progress, result }: { progress: ProgressItem[]; result: BenchmarkResponse | null }) {
   return (
     <div className="progress-panel">
@@ -959,6 +1077,20 @@ function UploadGlyph() {
 }
 
 function ModelIcon({ provider, label }: { provider: string; label: string }) {
+  if (provider === "github") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 24 24" className="model-icon social-svg" fill="currentColor">
+        <path d="M12 2C6.48 2 2 6.58 2 12.24c0 4.52 2.87 8.35 6.84 9.7.5.09.68-.22.68-.49v-1.73c-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.49-1.11-1.49-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.35 1.12 2.92.85.09-.67.35-1.12.63-1.38-2.22-.26-4.56-1.14-4.56-5.06 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05A9.36 9.36 0 0 1 12 6.95c.85 0 1.7.12 2.5.34 1.9-1.33 2.74-1.05 2.74-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.93-2.34 4.8-4.57 5.05.36.32.68.94.68 1.9v2.8c0 .27.18.59.69.49A10.08 10.08 0 0 0 22 12.24C22 6.58 17.52 2 12 2Z" />
+      </svg>
+    );
+  }
+  if (provider === "linkedin") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 24 24" className="model-icon social-svg" fill="currentColor">
+        <path d="M4.98 3.5a2.5 2.5 0 1 0 0 5.01 2.5 2.5 0 0 0 0-5.01ZM3 9.86h3.96V21H3V9.86Zm6.23 0h3.8v1.52h.05c.53-1 1.82-2.05 3.75-2.05 4 0 4.74 2.64 4.74 6.07V21h-3.96v-4.97c0-1.18-.02-2.7-1.65-2.7-1.65 0-1.9 1.29-1.9 2.62V21H9.23V9.86Z" />
+      </svg>
+    );
+  }
   const src = modelIcons[provider];
   return src ? (
     // eslint-disable-next-line @next/next/no-img-element

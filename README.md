@@ -1,56 +1,64 @@
 # VahanAI ASR Benchmark
 
-Tooling for the ASR Shootout intern assignment: record/upload Indian conversational speech, compare ASR providers against Deepgram Nova-3, and generate evidence for a concise report.
+This is my ASR benchmarking submission for Indian conversational speech.
 
-## What This Covers
+The app compares Deepgram against Sarvam, OpenAI, AssemblyAI, and Google Speech-to-Text on real audio samples. The public page shows the completed benchmark. The playground lets someone upload or record audio, add ground truth, and run models live.
 
-- Deepgram Nova-3 baseline
-- Sarvam models
-- AssemblyAI models
-- OpenAI transcription models
-- Google Speech-to-Text models
-- Browser recording and upload
-- Public sample URLs from Voice of India/Josh Talks while the 20-recording set is still being collected
-- Condition labels such as quiet, traffic, phone call, rushed, whispered
-- WER, CER, entity recall/F1, latency, failure analysis
-- Live per-model response timing
-- CLI benchmark pipeline from a manifest CSV
+Live playground access is protected because paid or limited API keys are hosted on the backend. Deepgram Nova-3 stays open for everyone.
 
-## Dataset Workflow
+## Links
 
-Record 20 natural Bangalore locality utterances. Use varied conditions and clear filenames.
+| Item | Link |
+|---|---|
+| App | https://vahan-ai-assignment.vercel.app |
+| GitHub | https://github.com/Satharva2004/Vahan-AI-Assignment |
+| LinkedIn | https://www.linkedin.com/in/atharvasawant |
 
-Example:
+## What I Built
 
-```text
-data/
-  manifest.csv
-  recordings/
-    01_koramangala_quiet.webm
-    02_indiranagar_traffic.webm
+| Area | Details |
+|---|---|
+| Results page | Saved benchmark table, charts, transcript evidence, and metric explanations |
+| Upload playground | Upload file, record in browser, add ground truth, select models, and run live ASR |
+| Public access | Deepgram Nova-3 can be used without a password |
+| Judge access | Paid models unlock with a backend password |
+| Providers | Deepgram, Sarvam, OpenAI, AssemblyAI, Google STT |
+| Dataset | 32 labelled voice notes with language, condition, entity, and ground truth |
+
+## Architecture
+
+```mermaid
+flowchart LR
+  A["Next.js frontend"] --> B["FastAPI backend"]
+  B --> C["Deepgram"]
+  B --> D["Sarvam"]
+  B --> E["OpenAI transcription"]
+  B --> F["AssemblyAI"]
+  B --> G["Google STT"]
+  B --> H["Metrics engine"]
+  H --> I["WER, CER, entity recall, hallucination, latency, RTF"]
+  I --> J["Saved JSON results"]
+  J --> A
 ```
 
-Manifest format:
+The frontend never stores provider API keys. Keys stay in backend environment variables.
 
-```csv
-file,reference,locality,language,condition,entities
-recordings/01_koramangala_quiet.webm,"haan main koramangala mein rehta hoon",Koramangala,Hinglish,Quiet,Koramangala
-```
+## Security Model
 
-Use [data/manifest.example.csv](data/manifest.example.csv) as the template.
+Deepgram Nova-3 is open so anyone can try the playground.
 
-The web app also includes starter public samples:
+Paid models are locked:
 
-- Hindi speaker stems from Voice of India
-- Kannada speaker stems from Voice of India/Josh Talks
+| User | What they can do |
+|---|---|
+| Public visitor | Run Deepgram Nova-3 only |
+| Judge | Enter password once and unlock paid models |
+| Direct API caller | Backend rejects paid models without the password header |
 
-These WAV files are fetched by the backend from public Google Cloud Storage URLs. Add the real transcript in the UI when available; without a reference transcript, the app can still show provider output and latency, but WER/CER/entity scores will be unavailable for that sample.
-
-## API Keys
-
-Put keys in `backend/.env`:
+Required backend env:
 
 ```env
+PLAYGROUND_PASSWORD=...
 DEEPGRAM_API_KEY=...
 SARVAM_API_KEY=...
 ASSEMBLYAI_API_KEY=...
@@ -58,31 +66,82 @@ OPENAI_API_KEY=...
 GOOGLE_SERVICE_ACCOUNT_JSON_B64=...
 ```
 
-`backend/.env` is git-ignored.
+`backend/.env` is ignored by Git.
 
-For Google STT, keep the service account JSON in the env only. This project supports a base64-encoded JSON value through `GOOGLE_SERVICE_ACCOUNT_JSON_B64`.
+## Models Benchmarked
 
-## Backend
+| Provider | Models |
+|---|---|
+| Deepgram | Nova-3, Nova-2, Base |
+| Sarvam | Saarika v2.5, Saaras v3, Saaras v3 Codemix |
+| OpenAI | GPT-4o Transcribe, GPT-4o Mini Transcribe |
+| AssemblyAI | Best |
+| Google STT | Latest Long, Telephony |
+
+## Metrics
+
+| Metric | Why I used it |
+|---|---|
+| WER | Broad word-level transcription accuracy |
+| CER | Useful for spelling drift in names and locality words |
+| Accuracy | `1 - WER`, easier to read for non-technical reviewers |
+| Entity recall | Checks whether important names and places were captured |
+| Entity F1 | Balances entity precision and recall |
+| Hallucination rate | Tracks inserted words that were not in the ground truth |
+| Latency | Matters for interactive voice workflows |
+| Real-time factor | Processing time divided by audio duration. Below 1x is faster than real time |
+| Failure count | Captures API limits and operational reliability |
+
+WER is not always the full story. If a model gives a correct translation, transliteration, or another valid script, WER can make it look worse than it is. That is why the app also shows ground truth and model output side by side.
+
+## Current Benchmark
+
+The saved benchmark uses `data/Voice Notes.xlsx`.
+
+| Detail | Value |
+|---|---|
+| Recordings | 32 |
+| Audio source | Cloud-hosted OGG files |
+| Labels | Ground truth, language, condition, entity |
+| Output files | `data/results/*` and `frontend/public/benchmark-results.json` |
+
+Top results by WER:
+
+| Rank | Model | WER | Accuracy | Entity Recall | Hallucination | RTF | Failures |
+|---:|---|---:|---:|---:|---:|---:|---:|
+| 1 | Sarvam Saarika v2.5 | 16.44% | 83.56% | 76.67% | 2.83% | 0.172x | 2 |
+| 2 | Sarvam Saaras v3 Codemix | 17.86% | 82.14% | 65.00% | 2.30% | 0.175x | 2 |
+| 3 | OpenAI GPT-4o Mini Transcribe | 18.35% | 81.65% | 60.44% | 2.61% | 0.248x | 0 |
+| 4 | Sarvam Saaras v3 | 18.69% | 81.31% | 65.00% | 2.67% | 0.183x | 2 |
+| 5 | Deepgram Nova-3 | 24.16% | 75.84% | 35.66% | 4.24% | 0.334x | 0 |
+
+My read:
+
+Sarvam had the best accuracy and entity recall on short files, but its synchronous API failed on two files above 30 seconds. OpenAI GPT-4o Mini was the strongest zero-failure model. Deepgram Nova-3 was reliable and fast enough, but missed more locality entities in this dataset.
+
+## Transcript Examples
+
+| Ground truth | Model | Output | Result |
+|---|---|---|---|
+| Electronic City feels like a different town altogether | Deepgram Nova-3 | Electronic City feels like a different town altogether. | Exact match after normalization |
+| Electronic City feels like a different town altogether | Sarvam Saarika v2.5 | Electronic city feels like a different town altogether. | Correct locality |
+| We move to Sarjapur to be closer to the international schools | Sarvam Saarika v2.5 | We move to Sarjapur to be closer to the international schools. | Exact match after punctuation |
+| I live in Koramangala | Sarvam Saarika v2.5 | I live in Koramangala. | Correct entity |
+| We move to Sarjapur to be closer to the international schools | Deepgram Nova-3 | We moved to Sarjapur to be closer to the international schools. | Meaning is right, WER penalizes tense |
+
+## How To Run
+
+Backend:
 
 ```powershell
 cd backend
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Backend runs at http://localhost:8000.
-
-If port `8000` is blocked on Windows, use another port:
-
-```powershell
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8010
-```
-
-Then update `frontend/.env` to `NEXT_PUBLIC_API_BASE_URL=http://localhost:8010`.
-
-## Frontend
+Frontend:
 
 ```powershell
 cd frontend
@@ -90,28 +149,14 @@ npm install
 npm run dev
 ```
 
-Frontend runs at http://localhost:3000.
-
-Frontend API target is controlled from one file: `frontend/.env`.
+Frontend env:
 
 ```env
-NEXT_PUBLIC_API_BASE_URL=https://vahan-ai-assignment-74ig.vercel.app
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 NEXT_PUBLIC_API_ROUTE_PREFIX=
 ```
 
-For local backend testing, change `NEXT_PUBLIC_API_BASE_URL` to `http://localhost:8000`. If a backend is mounted under a route prefix such as `/_/backend`, set `NEXT_PUBLIC_API_ROUTE_PREFIX=/_/backend`.
-
-## CLI Benchmark
-
-Run the reproducible benchmark:
-
-```powershell
-cd backend
-.\.venv\Scripts\Activate.ps1
-python scripts\run_benchmark.py --manifest ..\data\manifest.csv --output ..\data\results --models deepgram-nova-3 sarvam-saaras-v3-transcribe assemblyai-best
-```
-
-Run the full Voice Notes Excel benchmark:
+## Re-run The Benchmark
 
 ```powershell
 cd backend
@@ -121,34 +166,25 @@ python scripts\run_benchmark.py --manifest "..\data\Voice Notes.xlsx" --output .
 
 Outputs:
 
-- `data/results/results.csv`
-- `data/results/results.json`
-- `data/results/summary.json`
-- `frontend/public/benchmark-results.json`
+| File | Purpose |
+|---|---|
+| `data/results/results.csv` | Full row-level results |
+| `data/results/results.json` | Full structured output |
+| `data/results/summary.json` | Aggregate model summary |
+| `frontend/public/benchmark-results.json` | Data rendered by the website |
 
-## Voice Notes Benchmark
+## Limitations
 
-The current saved benchmark uses `data/Voice Notes.xlsx`: 32 Cloudinary OGG recordings with ground truth, language, condition, and entity labels. It benchmarks 11 ASR configurations across Deepgram, Sarvam, OpenAI, AssemblyAI, and Google STT.
+| Limitation | Impact |
+|---|---|
+| 32 samples only | Good for assignment signal, not production-level proof |
+| WER is lexical | Can punish semantically correct translations or tense changes |
+| Provider normalization differs | Punctuation, casing, numerals, and scripts vary |
+| Sarvam file length limit | Two long samples failed on synchronous API |
+| Hosted keys are rate-sensitive | Paid models are password locked |
 
-Top aggregate results by WER:
+## Final Recommendation
 
-| Rank | Model | WER | Accuracy | Exact Match | Entity Recall | Hallucination | RTF | Failures |
-|---:|---|---:|---:|---:|---:|---:|---:|---:|
-| 1 | Sarvam Saarika v2.5 | 16.44% | 83.56% | 46.67% | 76.67% | 2.83% | 0.172x | 2 |
-| 2 | Sarvam Saaras v3 Codemix | 17.86% | 82.14% | 36.67% | 65.00% | 2.30% | 0.175x | 2 |
-| 3 | OpenAI GPT-4o Mini Transcribe | 18.35% | 81.65% | 34.38% | 60.44% | 2.61% | 0.248x | 0 |
-| 4 | Sarvam Saaras v3 | 18.69% | 81.31% | 33.33% | 65.00% | 2.67% | 0.183x | 2 |
-| 5 | Deepgram Nova-3 | 24.16% | 75.84% | 15.62% | 35.66% | 4.24% | 0.334x | 0 |
+For the current dataset, I would use Sarvam Saarika v2.5 when the audio is short and entity accuracy matters most.
 
-Interpretation: Sarvam leads on WER and entity recall on the short recordings, but its synchronous API rejects two files longer than 30 seconds. OpenAI GPT-4o Mini is the strongest zero-failure challenger. Deepgram Nova-3 remains reliable but misses more locality entities in this dataset.
-
-## Report Notes
-
-The final report should be max 3 pages and include:
-
-- Model selection rationale
-- Dataset and condition breakdown
-- Metrics and why they matter
-- Failure analysis by condition, model, and locality
-- Recommendation against the Deepgram baseline
-- Limitations and one surprising insight
+For a more robust production fallback, I would keep OpenAI GPT-4o Mini Transcribe as the zero-failure challenger and Deepgram Nova-3 as the public baseline because it is stable and simple to expose.

@@ -171,6 +171,12 @@ textarea {
   object-fit: contain;
 }
 
+.social-svg {
+  height: 1.55rem;
+  width: 1.55rem;
+  color: var(--foreground);
+}
+
 .model-icon-fallback {
   display: inline-grid;
   place-items: center;
@@ -629,9 +635,11 @@ textarea {
 }
 
 .header-actions {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.65rem;
   width: 100%;
+  align-items: center;
 }
 
 .header-tabs {
@@ -662,55 +670,62 @@ textarea {
   box-shadow: inset 0 0 0 1px var(--foreground);
 }
 
-body:has(#upload:target) .header-tab-active {
-  background: transparent;
-  color: var(--muted);
-  box-shadow: none;
-}
-
-body:has(#upload:target) .header-tab[href="#upload"] {
-  background: var(--soft);
-  color: var(--foreground);
-  box-shadow: inset 0 0 0 1px var(--foreground);
-}
-
-.github-link {
-  display: inline-flex;
+.social-link {
+  display: inline-grid;
+  height: 2.45rem;
+  width: 2.45rem;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
-  min-height: 2.7rem;
-  border: 2px solid var(--foreground);
-  border-radius: 0.55rem;
-  background: var(--foreground);
-  color: var(--background);
-  padding: 0 1rem;
-  font-weight: 900;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--foreground);
   text-decoration: none;
-  box-shadow: 3px 3px 0 0 #d1d5db;
-  transition: transform 160ms ease, box-shadow 160ms ease;
+  transition: transform 160ms ease, background 160ms ease;
 }
 
-.github-link:hover {
+.social-link:hover {
   transform: translateY(-1px);
-  box-shadow: 4px 4px 0 0 #d1d5db;
-}
-
-.github-link .model-icon {
-  background: var(--background);
+  background: var(--soft);
 }
 
 @media (min-width: 768px) {
   .header-actions {
     width: auto;
-    grid-template-columns: auto auto;
-    align-items: center;
   }
 
   .header-tabs {
     width: auto;
     min-width: 16rem;
   }
+}
+
+.unlock-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(17, 24, 39, 0.35);
+  padding: 1rem;
+}
+
+.unlock-modal {
+  width: min(100%, 34rem);
+  border: 2px solid var(--foreground);
+  border-radius: 0.5rem;
+  background: var(--background);
+  padding: 1.25rem;
+  box-shadow: 8px 8px 0 0 var(--foreground);
+}
+
+.model-lock-label {
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #991b1b;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 900;
 }
 
 .results-hero {
