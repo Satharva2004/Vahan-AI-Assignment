@@ -94,13 +94,6 @@ MODEL_SPECS = [
         rationale="API-based general ASR baseline with hosted inference.",
     ),
     ModelSpec(
-        id="assemblyai-slam-1",
-        provider="assemblyai",
-        label="AssemblyAI Slam-1",
-        model="slam-1",
-        rationale="AssemblyAI's newer speech model when enabled for the account.",
-    ),
-    ModelSpec(
         id="google-stt-long",
         provider="google",
         label="Google STT Latest Long",
