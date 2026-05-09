@@ -1,6 +1,8 @@
 import json
 import os
+import wave
 from dataclasses import asdict
+from io import BytesIO
 from typing import Annotated, Any
 
 from fastapi import FastAPI, File, Form, UploadFile
@@ -47,10 +49,12 @@ async def benchmark(
     api_keys: Annotated[str, Form()] = "{}",
     entities: Annotated[str, Form()] = "[]",
     conditions: Annotated[str, Form()] = "[]",
+    durations: Annotated[str, Form()] = "[]",
 ) -> dict:
     parsed_references: list[str] = json.loads(references)
     parsed_entities: list[str] = json.loads(entities)
     parsed_conditions: list[str] = json.loads(conditions) if conditions else []
+    parsed_durations: list[float | None] = json.loads(durations) if durations else []
     selected_models: list[str] = json.loads(model_ids)
     keys: dict[str, str] = json.loads(api_keys) if api_keys else {}
     selected_models = list(dict.fromkeys(selected_models))
@@ -59,27 +63,91 @@ async def benchmark(
         return {"ok": False, "error": "Each audio file needs one reference transcript."}
     if parsed_conditions and len(parsed_conditions) != len(files):
         return {"ok": False, "error": "Condition labels must match the uploaded files."}
+    if parsed_durations and len(parsed_durations) != len(files):
+        return {"ok": False, "error": "Audio durations must match the uploaded files."}
     if not selected_models:
         return {"ok": False, "error": "Select at least one ASR model."}
 
-    runs = []
+    items = []
     for index, file in enumerate(files):
         content = await file.read()
+        items.append(
+            {
+                "content": content,
+                "file_name": file.filename or f"recording-{index + 1}.wav",
+                "content_type": file.content_type or "application/octet-stream",
+                "reference": parsed_references[index],
+                "entities": parsed_entities[index],
+                "condition": parsed_conditions[index] if parsed_conditions else "Unlabeled",
+                "duration_seconds": parsed_durations[index] if parsed_durations else None,
+            }
+        )
+
+    return await _run_benchmark(items, selected_models, keys)
+
+
+@app.post("/benchmark-urls")
+async def benchmark_urls(payload: dict[str, Any]) -> dict:
+    selected_models = list(dict.fromkeys(payload.get("model_ids") or []))
+    keys: dict[str, str] = payload.get("api_keys") or {}
+    samples = payload.get("samples") or []
+    if not selected_models:
+        return {"ok": False, "error": "Select at least one ASR model."}
+    if not samples:
+        return {"ok": False, "error": "Select at least one sample URL."}
+
+    items = []
+    async with httpx.AsyncClient(timeout=180, follow_redirects=True) as client:
+        for index, sample in enumerate(samples):
+            url = sample.get("audio_url", "")
+            if not url:
+                return {"ok": False, "error": "Each sample needs audio_url."}
+            response = await client.get(url)
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                return {"ok": False, "error": f"Could not fetch {url}: {response.status_code} {response.text[:200]}"}
+            items.append(
+                {
+                    "content": response.content,
+                    "file_name": sample.get("file_name") or f"url-sample-{index + 1}.wav",
+                    "content_type": response.headers.get("content-type", "audio/wav").split(";", 1)[0],
+                    "reference": sample.get("reference", ""),
+                    "entities": sample.get("entities", ""),
+                    "condition": sample.get("condition", "External sample"),
+                    "duration_seconds": sample.get("duration_seconds"),
+                    "metadata": sample.get("metadata", {}),
+                }
+            )
+
+    return await _run_benchmark(items, selected_models, keys)
+
+
+async def _run_benchmark(items: list[dict], selected_models: list[str], keys: dict[str, str]) -> dict:
+    runs = []
+    for item in items:
         recording_results = []
+        duration_seconds = item.get("duration_seconds") or _audio_duration_seconds(
+            item["content"],
+            item["content_type"],
+            item["file_name"],
+        )
         for model_id in selected_models:
             spec = get_model(model_id)
             transcription = await transcribe_audio(
                 spec,
-                content,
-                file.filename or f"recording-{index + 1}.wav",
-                file.content_type or "application/octet-stream",
+                item["content"],
+                item["file_name"],
+                item["content_type"],
                 keys,
             )
+            reference = item.get("reference", "")
             metrics = (
-                asdict(evaluate(parsed_references[index], transcription["transcript"], parsed_entities[index]))
-                if transcription["ok"]
+                asdict(evaluate(reference, transcription["transcript"], item.get("entities", "")))
+                if transcription["ok"] and reference.strip()
                 else None
             )
+            rtf = _real_time_factor(transcription["latency_ms"], duration_seconds) if transcription["ok"] else None
             recording_results.append(
                 {
                     "model_id": spec.id,
@@ -87,6 +155,8 @@ async def benchmark(
                     "label": spec.label,
                     "transcript": transcription["transcript"],
                     "latency_ms": transcription["latency_ms"],
+                    "rtf": rtf,
+                    "realtime_status": _realtime_status(rtf),
                     "ok": transcription["ok"],
                     "error": transcription.get("error"),
                     "metrics": metrics,
@@ -94,24 +164,28 @@ async def benchmark(
             )
         runs.append(
             {
-                "file_name": file.filename,
-                "reference": parsed_references[index],
-                "entities": parsed_entities[index],
-                "condition": parsed_conditions[index] if parsed_conditions else "Unlabeled",
+                "file_name": item["file_name"],
+                "reference": item.get("reference", ""),
+                "ground_truth": item.get("reference", ""),
+                "entities": item.get("entities", ""),
+                "condition": item.get("condition", "Unlabeled"),
+                "duration_seconds": duration_seconds,
+                "metadata": item.get("metadata", {}),
                 "results": recording_results,
             }
         )
 
     aggregate = []
     for model_id in selected_models:
-        values = [
+        ok_results = [
             result
             for run in runs
             for result in run["results"]
-            if result["model_id"] == model_id and result["ok"] and result["metrics"]
+            if result["model_id"] == model_id and result["ok"]
         ]
+        values = [result for result in ok_results if result["metrics"]]
         spec = get_model(model_id)
-        count = len(values)
+        count = len(ok_results)
         aggregate.append(
             {
                 "model_id": spec.id,
@@ -122,9 +196,11 @@ async def benchmark(
                 "cer": _avg(values, "cer"),
                 "entity_f1": _avg(values, "entity_f1"),
                 "entity_recall": _avg(values, "entity_recall"),
+                "hallucination_rate": _avg(values, "hallucination_rate"),
                 "similarity": _avg(values, "similarity"),
-                "latency_ms": round(sum(item["latency_ms"] for item in values) / count) if count else None,
-                "failures": len(files) - count,
+                "latency_ms": round(sum(item["latency_ms"] for item in ok_results) / count) if count else None,
+                "rtf": _avg_result(ok_results, "rtf"),
+                "failures": len(items) - count,
             }
         )
 
@@ -137,6 +213,9 @@ async def benchmark(
             "primary": "WER ranks broad transcription accuracy; CER protects against spelling drift in locality names and short utterances.",
             "entity": "Entity recall/F1 isolates the phrases that matter most in address, place, and operational workflows.",
             "latency": "Latency is reported because an ASR that is slightly less accurate may still be better for interactive use.",
+            "rtf": "Real-time factor is processing time divided by audio duration: below 1 is faster than real time, near 1 is real time, above 1 is slower.",
+            "hallucination": "Hallucination rate tracks inserted model words that were not supported by the ground truth.",
+            "semantic_warning": "WER is lexical, not semantic: translation, transliteration, script changes, or equivalent wording can make a correct model output look wrong.",
             "limitations": "Scores depend on only the uploaded sample, exact references, audio quality, and provider normalization choices.",
         },
     }
@@ -146,6 +225,42 @@ def _avg(values: list[dict], key: str) -> float | None:
     if not values:
         return None
     return round(sum(item["metrics"][key] for item in values) / len(values), 4)
+
+
+def _avg_result(values: list[dict], key: str) -> float | None:
+    present = [item[key] for item in values if item.get(key) is not None]
+    if not present:
+        return None
+    return round(sum(present) / len(present), 3)
+
+
+def _real_time_factor(latency_ms: int | float | None, duration_seconds: float | None) -> float | None:
+    if not latency_ms or not duration_seconds or duration_seconds <= 0:
+        return None
+    return round((latency_ms / 1000) / duration_seconds, 3)
+
+
+def _realtime_status(rtf: float | None) -> str | None:
+    if rtf is None:
+        return None
+    if rtf < 0.95:
+        return "faster-than-real-time"
+    if rtf <= 1.05:
+        return "real-time"
+    return "slower-than-real-time"
+
+
+def _audio_duration_seconds(content: bytes, content_type: str, file_name: str) -> float | None:
+    normalized = (content_type or "").split(";", 1)[0].lower()
+    if normalized in {"audio/wav", "audio/x-wav", "audio/wave"} or file_name.lower().endswith(".wav"):
+        try:
+            with wave.open(BytesIO(content), "rb") as audio:
+                frames = audio.getnframes()
+                rate = audio.getframerate()
+                return round(frames / rate, 3) if rate else None
+        except wave.Error:
+            return None
+    return None
 
 
 def _failure_analysis(runs: list[dict]) -> dict:
@@ -202,8 +317,14 @@ async def analyze_results(payload: dict[str, Any]) -> dict:
 
     prompt = (
         "You are evaluating ASR benchmark results for Indian conversational speech. "
-        "Write a concise, opinionated summary with recommendation, surprising insight candidates, "
-        "failure modes, and limitations. Avoid fluff.\n\n"
+        "Write a concise, human-readable Markdown summary. Keep it minimal. "
+        "Use these exact sections: ## Recommendation, ## What the metrics mean, ## Key result, "
+        "## Failure modes, ## Limitations. Explain WER, CER, hallucination rate, entity recall, latency, and real-time factor in simple terms. "
+        "Be careful: WER is only lexical overlap between ground truth and model output. If the ground truth is in one language/script "
+        "and the model output is a correct translation, transliteration, or semantically equivalent phrase in another language/script, "
+        "say that WER may overstate the failure and that the transcript evidence should be inspected manually. "
+        "Do not call a model worse solely from WER when this mismatch is visible. "
+        "Avoid fluff and avoid long paragraphs.\n\n"
         f"Results JSON:\n{json.dumps(payload)[:12000]}"
     )
     try:
@@ -236,12 +357,26 @@ def _heuristic_analysis(payload: dict[str, Any]) -> str:
         reverse=True,
     )[:3]
     lines = [
-        f"Recommendation: use {best['label']} on this sample, but validate on all 20 recordings before finalizing." if best else "Recommendation: no successful model result yet.",
-        "Why: prioritize entity recall and transcript evidence over WER alone because locality names are the operational risk.",
+        "## Recommendation",
+        f"Use **{best['label']}** on this sample, but validate on all 20 recordings before finalizing." if best else "No successful model result yet.",
+        "",
+        "## What the metrics mean",
+        "- **WER**: word error rate. Lower is better.",
+        "- **CER**: character error rate. Lower catches spelling mistakes in names.",
+        "- **Hallucination rate**: inserted words in model output that are not in the ground truth. Lower is better.",
+        "- **Entity recall**: how often locality names were captured. Higher is better.",
+        "- **Latency**: response time. Lower is better for calls.",
+        "- **Real-time factor**: processing time divided by audio duration. Below 1 is faster than real time.",
+        "- **Important**: WER can be unfair when the model output is a correct translation/transliteration or uses another script.",
+        "",
+        "## Key result",
+        "Prioritize entity recall and transcript evidence over WER alone. If language/script differs but meaning is right, mark it as a WER limitation rather than a true ASR failure.",
     ]
     if worst_entities:
-        lines.append("Most missed entities: " + ", ".join(f"{name} ({count})" for name, count in worst_entities))
+        lines.extend(["", "## Failure modes", "- Most missed entities: " + ", ".join(f"{name} ({count})" for name, count in worst_entities)])
     if risky_conditions:
-        lines.append("Riskiest conditions: " + ", ".join(name for name, _ in risky_conditions))
-    lines.append("Limitation: this summary is directional until the full 20-recording dataset is run with condition labels.")
+        if "## Failure modes" not in lines:
+            lines.extend(["", "## Failure modes"])
+        lines.append("- Riskiest conditions: " + ", ".join(name for name, _ in risky_conditions))
+    lines.extend(["", "## Limitations", "This summary is directional until the full 20-recording dataset is run with condition labels."])
     return "\n".join(lines)

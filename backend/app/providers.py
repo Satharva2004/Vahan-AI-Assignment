@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import httpx
 from dotenv import load_dotenv
 
 
-load_dotenv()
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+load_dotenv(BACKEND_DIR / ".env")
 
 
 @dataclass(frozen=True)
@@ -100,8 +103,8 @@ MODEL_SPECS = [
     ModelSpec(
         id="google-stt-long",
         provider="google",
-        label="Google STT Long",
-        model="long",
+        label="Google STT Latest Long",
+        model="latest_long",
         language="hi-IN",
         rationale="Google Cloud Speech baseline for Hindi/Indian speech.",
     ),
@@ -281,13 +284,14 @@ async def _google_stt(
     content_type: str,
     api_key: str,
 ) -> tuple[str, dict[str, Any]]:
-    if not api_key:
-        raise TranscriptionError("Missing Google API key")
+    access_token = await _google_access_token()
+    if not api_key and not access_token:
+        raise TranscriptionError("Missing Google API key or service account env")
     config: dict[str, Any] = {
         "languageCode": spec.language or "hi-IN",
         "model": spec.model,
         "enableAutomaticPunctuation": True,
-        "alternativeLanguageCodes": ["en-IN", "kn-IN"],
+        "alternativeLanguageCodes": ["en-IN", "kn-IN", "mr-IN"],
     }
     encoding = _google_encoding(content_type)
     if encoding:
@@ -300,11 +304,18 @@ async def _google_stt(
         "audio": {"content": base64.b64encode(content).decode("ascii")},
     }
     async with httpx.AsyncClient(timeout=180) as client:
-        response = await client.post(
-            "https://speech.googleapis.com/v1/speech:recognize",
-            params={"key": api_key},
-            json=payload,
-        )
+        if access_token:
+            response = await client.post(
+                "https://speech.googleapis.com/v1/speech:recognize",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json=payload,
+            )
+        else:
+            response = await client.post(
+                "https://speech.googleapis.com/v1/speech:recognize",
+                params={"key": api_key},
+                json=payload,
+            )
     _raise_provider_error(response, "Google STT")
     data = response.json()
     transcript = " ".join(
@@ -363,3 +374,28 @@ async def _sleep(seconds: float) -> None:
     import asyncio
 
     await asyncio.sleep(seconds)
+
+
+async def _google_access_token() -> str:
+    service_account_b64 = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON_B64", "")
+    service_account_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+    if service_account_b64:
+        service_account_json = base64.b64decode(service_account_b64).decode("utf-8")
+    if not service_account_json:
+        return ""
+
+    def load_token() -> str:
+        from google.auth.transport.requests import Request
+        from google.oauth2 import service_account
+
+        info = json.loads(service_account_json)
+        credentials = service_account.Credentials.from_service_account_info(
+            info,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
+        credentials.refresh(Request())
+        return credentials.token or ""
+
+    import asyncio
+
+    return await asyncio.to_thread(load_token)

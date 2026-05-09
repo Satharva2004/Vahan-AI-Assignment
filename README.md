@@ -10,6 +10,7 @@ Tooling for the ASR Shootout intern assignment: record/upload Indian conversatio
 - OpenAI transcription models
 - Google Speech-to-Text models
 - Browser recording and upload
+- Public sample URLs from Voice of India/Josh Talks while the 20-recording set is still being collected
 - Condition labels such as quiet, traffic, phone call, rushed, whispered
 - WER, CER, entity recall/F1, latency, failure analysis
 - Live per-model response timing
@@ -38,6 +39,13 @@ recordings/01_koramangala_quiet.webm,"haan main koramangala mein rehta hoon",Kor
 
 Use [data/manifest.example.csv](data/manifest.example.csv) as the template.
 
+The web app also includes starter public samples:
+
+- Hindi speaker stems from Voice of India
+- Kannada speaker stems from Voice of India/Josh Talks
+
+These WAV files are fetched by the backend from public Google Cloud Storage URLs. Add the real transcript in the UI when available; without a reference transcript, the app can still show provider output and latency, but WER/CER/entity scores will be unavailable for that sample.
+
 ## API Keys
 
 Put keys in `backend/.env`:
@@ -47,10 +55,12 @@ DEEPGRAM_API_KEY=...
 SARVAM_API_KEY=...
 ASSEMBLYAI_API_KEY=...
 OPENAI_API_KEY=...
-GOOGLE_API_KEY=...
+GOOGLE_SERVICE_ACCOUNT_JSON_B64=...
 ```
 
 `backend/.env` is git-ignored.
+
+For Google STT, keep the service account JSON in the env only. This project supports a base64-encoded JSON value through `GOOGLE_SERVICE_ACCOUNT_JSON_B64`.
 
 ## Backend
 
@@ -63,6 +73,14 @@ uvicorn app.main:app --reload
 ```
 
 Backend runs at http://localhost:8000.
+
+If port `8000` is blocked on Windows, use another port:
+
+```powershell
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8010
+```
+
+Then set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8010` for the frontend.
 
 ## Frontend
 

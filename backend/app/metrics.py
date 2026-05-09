@@ -89,6 +89,7 @@ def extract_entities(reference: str, explicit_entities: str | None = None) -> li
 class MetricResult:
     wer: float
     cer: float
+    hallucination_rate: float
     entity_recall: float
     entity_precision: float
     entity_f1: float
@@ -97,6 +98,7 @@ class MetricResult:
     insertions: int
     missed_entities: list[str]
     extra_entity_like_terms: list[str]
+    inserted_words: int
     similarity: float
 
 
@@ -130,6 +132,7 @@ def evaluate(reference: str, hypothesis: str, entities: str | None = None) -> Me
     return MetricResult(
         wer=rate(substitutions + deletions + insertions, len(ref_words)),
         cer=rate(c_subs + c_dels + c_ins, len(ref_chars)),
+        hallucination_rate=rate(insertions, max(len(hyp_words), 1)),
         entity_recall=recall,
         entity_precision=precision,
         entity_f1=f1,
@@ -138,5 +141,6 @@ def evaluate(reference: str, hypothesis: str, entities: str | None = None) -> Me
         insertions=insertions,
         missed_entities=missed,
         extra_entity_like_terms=extras,
+        inserted_words=insertions,
         similarity=similarity(reference, hypothesis),
     )
