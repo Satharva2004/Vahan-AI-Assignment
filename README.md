@@ -6,13 +6,6 @@ The app compares Deepgram against Sarvam, OpenAI, AssemblyAI, and Google Speech-
 
 Live playground access is protected because paid or limited API keys are hosted on the backend. Deepgram Nova-3 stays open for everyone.
 
-## Links
-
-| Item | Link |
-|---|---|
-| App | https://vahan-ai-assignment.vercel.app |
-| GitHub | https://github.com/Satharva2004/Vahan-AI-Assignment |
-| LinkedIn | https://www.linkedin.com/in/atharvasawant |
 
 ## What I Built
 
@@ -164,14 +157,13 @@ cd backend
 python scripts\run_benchmark.py --manifest "..\data\Voice Notes.xlsx" --output ..\data\results --frontend-public ..\frontend\public
 ```
 
-Outputs:
+## Links
 
-| File | Purpose |
+| Item | Link |
 |---|---|
-| `data/results/results.csv` | Full row-level results |
-| `data/results/results.json` | Full structured output |
-| `data/results/summary.json` | Aggregate model summary |
-| `frontend/public/benchmark-results.json` | Data rendered by the website |
+| App | https://vahan-ai-assignment.vercel.app |
+| GitHub | https://github.com/Satharva2004/Vahan-AI-Assignment |
+| LinkedIn | https://www.linkedin.com/in/atharvasawant |
 
 ## Limitations
 
