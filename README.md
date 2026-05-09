@@ -1,5 +1,10 @@
 # VahanAI ASR Benchmark
 
+### Video Walkthrough
+
+https://www.loom.com/share/1ee2441f7bc742508c747be567f4ddd1
+
+<br>
 This is my ASR benchmarking submission for Indian conversational speech.
 
 The app compares Deepgram against Sarvam, OpenAI, AssemblyAI, and Google Speech-to-Text on real audio samples. The public page shows the completed benchmark. The playground lets someone upload or record audio, add ground truth, and run models live.
