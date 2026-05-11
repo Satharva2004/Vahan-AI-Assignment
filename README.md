@@ -7,7 +7,7 @@ https://www.loom.com/share/1ee2441f7bc742508c747be567f4ddd1
 <br>
 This is my ASR benchmarking submission for Indian conversational speech.
 
-The app compares Deepgram against Sarvam, OpenAI, AssemblyAI, and Google Speech-to-Text on real audio samples. The public page shows the completed benchmark. The playground lets someone upload or record audio, add ground truth, and run models live.
+The app compares Deepgram against Sarvam, OpenAI, AssemblyAI, and Google Speech-to-Text on real audio samples. The public page shows the completed benchmark. The playground lets someone upload or record audio, add ground truth, and compare models live.
 
 Live playground access is protected because paid or limited API keys are hosted on the backend. Deepgram Nova-3 stays open for everyone.
 
@@ -90,7 +90,7 @@ GOOGLE_SERVICE_ACCOUNT_JSON_B64=...
 | Real-time factor | Processing time divided by audio duration. Below 1x is faster than real time |
 | Failure count | Captures API limits and operational reliability |
 
-WER is not always the full story. If a model gives a correct translation, transliteration, or another valid script, WER can make it look worse than it is. That is why the app also shows ground truth and model output side by side.
+WER is not always the full story. If a model gives a correct translation, transliteration, or another valid script, WER can make it look worse than it is. That is why the app also shows ground truth alongside the output transcript.
 
 ## Current Benchmark
 
@@ -102,6 +102,25 @@ The saved benchmark uses `data/Voice Notes.xlsx`.
 | Audio source | Cloud-hosted OGG files |
 | Labels | Ground truth, language, condition, entity |
 | Output files | `data/results/*` and `frontend/public/benchmark-results.json` |
+
+### Data Structure (Head 5)
+
+The Excel file `data/Voice Notes.xlsx` has the following columns:
+
+| Column | Values | Purpose |
+|---|---|---|
+| **audio_file** (or `file`) | URL strings or local file paths | Links to audio samples (OGG format, cloud-hosted) |
+| **ground_truth** (or `reference`) | Text transcriptions | Expected/correct transcription for comparison |
+| **entities** (or `entity`) | Entity names | Important names and places to track in accuracy |
+| **condition** | e.g., "Unlabeled", environmental conditions | Recording quality/context (default: "Unlabeled") |
+| **language** | Language codes | Marks which language(s) in the audio |
+
+**Column name flexibility:** The backend normalizes flexible column names:
+- `audio_file`, `file`, or `audio` → `file`
+- `ground_truth`, `reference`, or `transcript` → `reference`
+- `entity` or `entities` → `entities`
+
+**Data filtering:** Only rows with both `file` and `reference` are processed (32 rows in this dataset).
 
 Top results by WER:
 
@@ -115,7 +134,7 @@ Top results by WER:
 
 My read:
 
-Sarvam had the best accuracy and entity recall on short files, but its synchronous API failed on two files above 30 seconds. OpenAI GPT-4o Mini was the strongest zero-failure model. Deepgram Nova-3 was reliable and fast enough, but missed more locality entities in this dataset.
+Sarvam had the best accuracy and entity recall on short files, but its synchronous API failed on two files above 30 seconds. OpenAI GPT-4o Mini was the strongest zero-failure model. Deepgram Nova-3 stays open for everyone and has no failures, making it a reliable public baseline despite higher WER.
 
 ## Transcript Examples
 
@@ -184,4 +203,4 @@ python scripts\run_benchmark.py --manifest "..\data\Voice Notes.xlsx" --output .
 
 For the current dataset, I would use Sarvam Saarika v2.5 when the audio is short and entity accuracy matters most.
 
-For a more robust production fallback, I would keep OpenAI GPT-4o Mini Transcribe as the zero-failure challenger and Deepgram Nova-3 as the public baseline because it is stable and simple to expose.
+For a more robust production fallback, I would keep OpenAI GPT-4o Mini Transcribe as the zero-failure challenger and Deepgram Nova-3 as the public baseline because it is stable and simple to expose without API key management.
