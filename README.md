@@ -122,6 +122,18 @@ The Excel file `data/Voice Notes.xlsx` has the following columns:
 
 **Data filtering:** Only rows with both `file` and `reference` are processed (32 rows in this dataset).
 
+### Sample Data (Head 5)
+
+| file | reference | locality | language | condition | entities |
+|---|---|---|---|---|---|
+| recordings/01_koramangala_quiet.webm | haan main koramangala mein rehta hoon | Koramangala | Hinglish | Quiet | Koramangala |
+| recordings/02_indiranagar_traffic.webm | mera ghar indiranagar ke paas hai | Indiranagar | Hinglish | Traffic | Indiranagar |
+| recordings/03_whitefield_phone.webm | whitefield side job chahiye | Whitefield | Hinglish | Phone call | Whitefield |
+| recordings/04_bangalore_street.webm | bangalore mein traffic bahut zyada hai | Bangalore | Hinglish | Street noise | Bangalore |
+| recordings/05_mall_crowded.webm | mall mein bheed zyada hai aaj | Mall | Hinglish | Crowded | Mall |
+
+**Source:** [`data/Voice Notes.xlsx`](https://github.com/Satharva2004/Vahan-AI-Assignment/blob/main/data/Voice%20Notes.xlsx) | **Live:** [https://vahan-ai-assignment.vercel.app](https://vahan-ai-assignment.vercel.app)
+
 Top results by WER:
 
 | Rank | Model | WER | Accuracy | Entity Recall | Hallucination | RTF | Failures |
